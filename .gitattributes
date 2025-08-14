@@ -1,0 +1,5 @@
+*.md text eol=crlf
+*.json text eol=crlf
+*.yaml text eol=crlf
+*.yml text eol=crlf
+*.conf text eol=crlf
