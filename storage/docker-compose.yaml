@@ -1,0 +1,93 @@
+---
+networks:
+  infra:
+    external: true
+    name: infra
+services:
+  minio:
+    pull_policy: build
+    command: server /data --console-address :9001
+    container_name: minio
+    healthcheck:
+      interval: 5s
+      retries: 5
+      test: ["CMD", "mc", "ready", "local"]
+      timeout: 5s
+    image: minio/minio:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    volumes: [minio:/data]
+  mongo:
+    pull_policy: build
+    container_name: mongo
+    image: mongo:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    volumes: [mongo:/data/db]
+  postgres:
+    pull_policy: build
+    container_name: postgres
+    healthcheck:
+      interval: 10s
+      retries: 6
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB || exit 1"]
+      timeout: 5s
+    image: postgres:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    volumes: [postgres:/var/lib/postgresql/data]
+  redis:
+    pull_policy: build
+    command: redis-server --appendonly yes
+    container_name: redis
+    healthcheck:
+      interval: 5s
+      retries: 5
+      test: [ "CMD", "redis-cli", "ping" ]
+      timeout: 3s
+    image: redis:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    user: '0'
+    volumes: [redis:/data]
+  samba:
+    pull_policy: build
+    command: '-n -s "Files;/files;yes;no;no;mairwunnx,lyn" -u "mairwunnx;опа опа америка европа" -u "lyn;опа опа опапа отжигаем до утра" -p'
+    container_name: samba
+    expose: [137/udp, 138/udp, 139/tcp, 445/tcp]
+    image: dperson/samba
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    tmpfs: [/tmp]
+    volumes: [samba:/data, ../configurations/samba:/etc/samba:ro]
+volumes:
+  minio: {}
+  mongo: {}
+  postgres: {}
+  redis: {}
+  samba: {}
