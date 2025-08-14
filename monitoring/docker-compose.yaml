@@ -1,0 +1,143 @@
+---
+networks:
+  infra:
+    external: true
+    name: infra
+services:
+  cadvisor:
+    pull_policy: build
+    container_name: cadvisor
+    expose: ['8080']
+    healthcheck:
+      interval: 20s
+      retries: 6
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/metrics >/dev/null 2>&1"]
+      timeout: 5s
+    image: gcr.io/cadvisor/cadvisor:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    privileged: true
+    restart: unless-stopped
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+  grafana:
+    pull_policy: build
+    container_name: grafana
+    expose: ['3000']
+    healthcheck:
+      interval: 10s
+      retries: 12
+      start_period: 30s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q '\"database\":\"ok\"'"]
+      timeout: 5s
+    image: grafana/grafana:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    volumes:
+      - grafana:/var/lib/grafana
+      - ../configurations/grafana/provisioning:/etc/grafana/provisioning
+      - ../configurations/grafana/dashboards:/etc/grafana/dashboards
+  node-exporter:
+    pull_policy: build
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    container_name: node-exporter
+    expose: ['9100']
+    healthcheck:
+      interval: 20s
+      retries: 6
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9100/metrics >/dev/null 2>&1"]
+      timeout: 5s
+    image: prom/node-exporter:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+  postgres-exporter:
+    pull_policy: build
+    container_name: postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=${POSTGRES_EXPORTER_DSN}
+    expose: ['9187']
+    healthcheck:
+      interval: 20s
+      retries: 6
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9187/metrics >/dev/null 2>&1"]
+      timeout: 5s
+    image: prometheuscommunity/postgres-exporter:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+  prometheus:
+    pull_policy: build
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    container_name: prometheus
+    expose: ['9090']
+    healthcheck:
+      interval: 10s
+      retries: 6
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready >/dev/null 2>&1"]
+      timeout: 5s
+    image: prom/prometheus:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    volumes:
+      - prometheus:/prometheus
+      - ../configurations/prometheus:/etc/prometheus
+  redis-exporter:
+    pull_policy: build
+    container_name: redis-exporter
+    expose: ['9121']
+    healthcheck:
+      interval: 20s
+      retries: 6
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9121/metrics >/dev/null 2>&1"]
+      timeout: 5s
+    image: oliver006/redis_exporter:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+volumes:
+  grafana: {}
+  prometheus: {}
