@@ -1,0 +1,29 @@
+---
+networks:
+  infra:
+    external: true
+    name: infra
+services:
+  npm:
+    pull_policy: build
+    environment:
+      - TZ=${TZ}
+    healthcheck:
+      interval: 10s
+      retries: 12
+      start_period: 20s
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:81 >/dev/null 2>&1"]
+      timeout: 5s
+    image: jc21/nginx-proxy-manager:latest
+    networks: [infra]
+    ports:
+      - '80:80'
+      - '443:443'
+      - '81:81'
+    restart: unless-stopped
+    volumes:
+      - npmdata:/data
+      - npmletsencrypt:/etc/letsencrypt
+volumes:
+  npmdata: {}
+  npmletsencrypt: {}
