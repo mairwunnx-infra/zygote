@@ -1,0 +1,25 @@
+---
+networks:
+  infra:
+    external: true
+    name: infra
+services:
+  portainer:
+    pull_policy: build
+    command: '-H unix:///var/run/docker.sock'
+    container_name: portainer
+    image: portainer/portainer-ce:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    ports:
+      - '9000:9000'
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer:/data
+volumes:
+  portainer: {}
