@@ -65,9 +65,9 @@ sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin 
 echo "✅ Docker установлен."
 
 echo "👥 Добавляем пользователя в группу Docker..."
-sudo groupadd docker
-sudo usermod -aG docker $USER
-newgrp docker
+sudo groupadd docker || true
+sudo usermod -aG docker $USER || true
+newgrp docker || true
 
 echo "✅ Пользователь добавлен в группу Docker."
 
