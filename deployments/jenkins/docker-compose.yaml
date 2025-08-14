@@ -1,0 +1,31 @@
+---
+networks:
+  infra:
+    external: true
+    name: infra
+services:
+  jenkins:
+    pull_policy: build
+    container_name: jenkins
+    expose: [8080]
+    healthcheck:
+      interval: 20s
+      retries: 20
+      start_period: 60s
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/login >/dev/null 2>&1"]
+      timeout: 10s
+    image: jenkins/jenkins:latest-jdk21
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    user: '1000:1000'
+    volumes:
+      - jenkins:/var/jenkins_home
+      - ../../configurations/jenkins/init.groovy.d:/usr/share/jenkins/ref/init.groovy.d:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+volumes:
+  jenkins: {}
