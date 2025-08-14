@@ -1,0 +1,33 @@
+---
+networks:
+  infra:
+    external: true
+    name: infra
+services:
+  gitlab:
+    pull_policy: build
+    container_name: gitlab
+    expose: [80, 22]
+    healthcheck:
+      interval: 30s
+      retries: 20
+      start_period: 120s
+      test: ["CMD-SHELL", "curl -fsS http://localhost/-/readiness || exit 1"]
+      timeout: 10s
+    image: gitlab/gitlab-ce:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    volumes:
+      - gitlabconfig:/etc/gitlab
+      - gitlablogs:/var/log/gitlab
+      - gitlabdata:/var/opt/gitlab
+      - ../../configurations/gitlab/gitlab.rb:/etc/gitlab/gitlab.rb:ro
+volumes:
+  gitlabconfig: {}
+  gitlabdata: {}
+  gitlablogs: {}
