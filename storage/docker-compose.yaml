@@ -71,8 +71,9 @@ services:
     user: '0'
     volumes: [redis:/data]
   samba:
+    env_file: .env
     pull_policy: build
-    command: '-n -s "Files;/files;yes;no;no;mairwunnx,lyn" -u "mairwunnx;опа опа америка европа" -u "lyn;опа опа опапа отжигаем до утра" -p'
+    command: '-n -s "Files;/files;yes;no;no;${SAMBA_USER_1_NAME},${SAMBA_USER_2_NAME}" -u "${SAMBA_USER_1_NAME};${SAMBA_USER_1_PASSWORD}" -u "${SAMBA_USER_2_NAME};${SAMBA_USER_2_PASSWORD}" -p'
     container_name: samba
     expose: [137/udp, 138/udp, 139/tcp, 445/tcp]
     image: dperson/samba
