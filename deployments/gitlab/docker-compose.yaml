@@ -26,6 +26,34 @@ services:
       - gitlabconfig:/etc/gitlab
       - gitlablogs:/var/log/gitlab
       - gitlabdata:/var/opt/gitlab
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url "${GITLAB_EXTERNAL_URL}"
+        postgresql['enable'] = false
+        redis['enable']      = false
+        gitlab_rails['db_host']     = "${GITLAB_DB_HOST}"
+        gitlab_rails['db_port']     = ${GITLAB_DB_PORT}
+        gitlab_rails['db_username'] = "${GITLAB_DB_USER}"
+        gitlab_rails['db_password'] = "${GITLAB_DB_PASSWORD}"
+        gitlab_rails['db_database'] = "${GITLAB_DB_NAME}"
+        gitlab_rails['redis_host']  = "${GITLAB_REDIS_HOST}"
+        gitlab_rails['redis_port']  = ${GITLAB_REDIS_PORT}
+        gitlab_rails['redis_password'] = "${GITLAB_REDIS_PASSWORD}"
+        prometheus['enable'] = false
+        alertmanager['enable'] = false
+        node_exporter['enable'] = false
+        redis_exporter['enable'] = false
+        registry['enable'] = true
+        gitlab_rails['registry_enabled'] = true
+        gitlab_pages['enable'] = false
+        gitlab_kas['enable'] = false
+        puma['worker_processes'] = 0
+        puma['min_threads'] = 1
+        puma['max_threads'] = 4
+        sidekiq['concurrency'] = 5
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_BIND:-22}
 volumes:
   gitlabconfig: {}
   gitlabdata: {}
