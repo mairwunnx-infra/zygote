@@ -128,9 +128,9 @@ services:
     healthcheck:
       interval: 20s
       retries: 6
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9121/metrics >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9121/metrics | grep -q '^# HELP'"]
       timeout: 5s
-    image: oliver006/redis_exporter:latest
+    image: bitnami/redis-exporter:latest
     logging:
       driver: local
       options:
