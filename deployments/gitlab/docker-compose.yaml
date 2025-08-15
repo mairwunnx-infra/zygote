@@ -26,7 +26,10 @@ services:
       - gitlabconfig:/etc/gitlab
       - gitlablogs:/var/log/gitlab
       - gitlabdata:/var/opt/gitlab
-      - ../../configurations/gitlab/gitlab.rb:/etc/gitlab/gitlab.rb:ro
+      - type: bind
+        source: ../../configurations/gitlab/gitlab.rb
+        target: /etc/gitlab/gitlab.rb
+        read_only: true
 volumes:
   gitlabconfig: {}
   gitlabdata: {}
