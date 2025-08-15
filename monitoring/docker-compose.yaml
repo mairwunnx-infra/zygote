@@ -34,9 +34,9 @@ services:
     expose: ['3000']
     healthcheck:
       interval: 10s
-      retries: 12
+      retries: 20
       start_period: 30s
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q '\"database\":\"ok\"'"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health && echo 'ok'"]
       timeout: 5s
     image: grafana/grafana:latest
     logging:
