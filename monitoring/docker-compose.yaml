@@ -32,6 +32,10 @@ services:
     pull_policy: always
     container_name: grafana
     expose: ['3000']
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      - GF_METRICS_ENABLED=${GF_METRICS_ENABLED}
     healthcheck:
       interval: 10s
       retries: 20
@@ -125,6 +129,8 @@ services:
     pull_policy: always
     container_name: redis-exporter
     expose: ['9121']
+    environment:
+      - REDIS_ADDR=${REDIS_ADDR}
     healthcheck:
       interval: 20s
       retries: 6
