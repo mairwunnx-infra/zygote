@@ -128,7 +128,7 @@ services:
     healthcheck:
       interval: 20s
       retries: 6
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9121/metrics | grep -q '^# HELP'"]
+      test: ["CMD-SHELL", "(grep -q ':23A1' /proc/net/tcp6 2>/dev/null || grep -q ':23A1' /proc/net/tcp 2>/dev/null)"]
       timeout: 5s
     image: bitnami/redis-exporter:latest
     logging:

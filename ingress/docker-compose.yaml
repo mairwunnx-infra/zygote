@@ -5,14 +5,13 @@ networks:
     name: infra
 services:
   npm:
+    container_name: npm
     pull_policy: always
-    environment:
-      - TZ=${TZ}
     healthcheck:
       interval: 10s
       retries: 12
       start_period: 20s
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:81 >/dev/null 2>&1"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:81/"]
       timeout: 5s
     image: jc21/nginx-proxy-manager:latest
     networks: [infra]
