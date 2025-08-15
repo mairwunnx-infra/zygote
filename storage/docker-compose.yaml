@@ -26,6 +26,11 @@ services:
     pull_policy: always
     container_name: mongo
     image: mongo:latest
+    environment:
+      TZ: ${TZ}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
     logging:
       driver: local
       options:
