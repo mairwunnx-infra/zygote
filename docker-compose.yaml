@@ -5,7 +5,7 @@ networks:
     name: infra
 services:
   portainer:
-    pull_policy: build
+    pull_policy: always
     command: '-H unix:///var/run/docker.sock'
     container_name: portainer
     image: portainer/portainer-ce:2.32.0

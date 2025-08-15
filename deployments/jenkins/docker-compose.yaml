@@ -5,7 +5,7 @@ networks:
     name: infra
 services:
   jenkins:
-    pull_policy: build
+    pull_policy: always
     container_name: jenkins
     expose: [8080]
     healthcheck:

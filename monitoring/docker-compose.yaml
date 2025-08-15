@@ -5,7 +5,7 @@ networks:
     name: infra
 services:
   cadvisor:
-    pull_policy: build
+    pull_policy: always
     container_name: cadvisor
     expose: ['8080']
     healthcheck:
@@ -29,7 +29,7 @@ services:
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
   grafana:
-    pull_policy: build
+    pull_policy: always
     container_name: grafana
     expose: ['3000']
     healthcheck:
@@ -51,7 +51,7 @@ services:
       - ../configurations/grafana/provisioning:/etc/grafana/provisioning
       - ../configurations/grafana/dashboards:/etc/grafana/dashboards
   node-exporter:
-    pull_policy: build
+    pull_policy: always
     command:
       - '--path.procfs=/host/proc'
       - '--path.sysfs=/host/sys'
@@ -77,7 +77,7 @@ services:
       - /sys:/host/sys:ro
       - /:/rootfs:ro
   postgres-exporter:
-    pull_policy: build
+    pull_policy: always
     container_name: postgres-exporter
     environment:
       - DATA_SOURCE_NAME=${POSTGRES_EXPORTER_DSN}
@@ -96,7 +96,7 @@ services:
     networks: [infra]
     restart: unless-stopped
   prometheus:
-    pull_policy: build
+    pull_policy: always
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -122,7 +122,7 @@ services:
       - prometheus:/prometheus
       - ../configurations/prometheus:/etc/prometheus
   redis-exporter:
-    pull_policy: build
+    pull_policy: always
     container_name: redis-exporter
     expose: ['9121']
     healthcheck:

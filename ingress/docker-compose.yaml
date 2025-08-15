@@ -5,7 +5,7 @@ networks:
     name: infra
 services:
   npm:
-    pull_policy: build
+    pull_policy: always
     environment:
       - TZ=${TZ}
     healthcheck:

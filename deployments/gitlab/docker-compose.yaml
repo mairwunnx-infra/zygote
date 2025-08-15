@@ -5,7 +5,7 @@ networks:
     name: infra
 services:
   gitlab:
-    pull_policy: build
+    pull_policy: always
     container_name: gitlab
     expose: [80, 22]
     healthcheck:
