@@ -17,7 +17,7 @@ alertmanager['enable']    = false
 node_exporter['enable']   = false
 redis_exporter['enable']  = false
 
-registry['enable']                      = false
+registry['enable']                      = true
 gitlab_rails['registry_enabled']        = true
 gitlab_pages['enable']                  = false
 gitlab_kas['enable']                    = false

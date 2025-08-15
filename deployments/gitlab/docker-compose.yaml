@@ -26,7 +26,6 @@ services:
       - gitlabconfig:/etc/gitlab
       - gitlablogs:/var/log/gitlab
       - gitlabdata:/var/opt/gitlab
-      - ../configurations/gitlab/gitlab.rb:/etc/gitlab/gitlab.rb:ro
 volumes:
   gitlabconfig: {}
   gitlabdata: {}
