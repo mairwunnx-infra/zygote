@@ -71,7 +71,6 @@ services:
     user: '0'
     volumes: [redis:/data]
   samba:
-    env_file: .env
     pull_policy: build
     command: '-n -s "Files;/files;yes;no;no;${SAMBA_USER_1_NAME},${SAMBA_USER_2_NAME}" -u "${SAMBA_USER_1_NAME};${SAMBA_USER_1_PASSWORD}" -u "${SAMBA_USER_2_NAME};${SAMBA_USER_2_PASSWORD}" -p'
     container_name: samba
