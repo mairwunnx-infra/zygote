@@ -8,6 +8,10 @@ services:
     pull_policy: always
     container_name: jenkins
     expose: [8080]
+    environment:
+      JENKINS_JAVA_OPTS: ${JENKINS_JAVA_OPTS}
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD}
     healthcheck:
       interval: 20s
       retries: 20
