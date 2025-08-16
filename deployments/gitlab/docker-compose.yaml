@@ -4,10 +4,78 @@ networks:
     external: true
     name: infra
 services:
+  bootstrap:
+    image: postgres:latest
+    container_name: bootstrap
+    pull_policy: always
+    networks: [infra]
+    restart: "no"
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    environment:
+      PGSU: ${POSTGRES_USER}
+      PGSU_PASSWORD: ${POSTGRES_PASSWORD}
+      GITLAB_DB_HOST: postgres
+      GITLAB_DB_PORT: "5432"
+      GITLAB_DB_USER: ${GITLAB_DB_USER}
+      GITLAB_DB_PASSWORD: ${GITLAB_DB_PASSWORD}
+      GITLAB_DB_NAME: ${GITLAB_DB_NAME}
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export PGPASSWORD="$PGSU_PASSWORD"
+        # wait for Postgres to be ready
+        until pg_isready -h "$GITLAB_DB_HOST" -p "$GITLAB_DB_PORT" -U "$PGSU" -t 2; do sleep 2; done
+        # ensure role exists (create or update password)
+        psql -v ON_ERROR_STOP=1 -h "$GITLAB_DB_HOST" -p "$GITLAB_DB_PORT" -U "$PGSU" -d postgres <<SQL
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$GITLAB_DB_USER') THEN
+            CREATE ROLE $GITLAB_DB_USER LOGIN PASSWORD '$GITLAB_DB_PASSWORD';
+          ELSE
+            ALTER ROLE $GITLAB_DB_USER LOGIN PASSWORD '$GITLAB_DB_PASSWORD';
+          END IF;
+        END
+        $$;
+        SQL
+        # create DB if missing and set owner
+        psql -v ON_ERROR_STOP=1 -h "$GITLAB_DB_HOST" -p "$GITLAB_DB_PORT" -U "$PGSU" -d postgres \
+          -c "SELECT 'CREATE DATABASE $GITLAB_DB_NAME OWNER $GITLAB_DB_USER' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$GITLAB_DB_NAME')\\gexec"
+        # required extensions
+        psql -v ON_ERROR_STOP=1 -h "$GITLAB_DB_HOST" -p "$GITLAB_DB_PORT" -U "$PGSU" -d "$GITLAB_DB_NAME" \
+          -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
+          -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+  redis-gitlab:
+    pull_policy: always
+    command: redis-server --appendonly yes
+    container_name: redis-gitlab
+    healthcheck:
+      interval: 5s
+      retries: 5
+      test: [ "CMD", "redis-cli", "ping" ]
+      timeout: 3s
+    image: redis:latest
+    logging:
+      driver: local
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks: [infra]
+    restart: unless-stopped
+    user: '0'
+    volumes: [redis:/data]
   gitlab:
     pull_policy: always
     container_name: gitlab
     expose: [80, 22]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       interval: 30s
       retries: 20
@@ -58,3 +126,4 @@ volumes:
   gitlabconfig: {}
   gitlabdata: {}
   gitlablogs: {}
+  redis: {}
