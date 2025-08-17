@@ -4,52 +4,22 @@ networks:
     external: true
     name: infra
 services:
-  bootstrap:
-    image: postgres:latest
-    container_name: bootstrap
-    pull_policy: always
-    networks: [infra]
-    restart: "no"
-    logging:
-      driver: local
-      options:
-        max-file: '3'
-        max-size: 10m
+  gitlab-flyway:
+    image: flyway/flyway:10-alpine
+    container_name: gitlab_flyway
     environment:
-      PGSU: ${POSTGRES_USER}
-      PGSU_PASSWORD: ${POSTGRES_PASSWORD}
-      GITLAB_DB_HOST: postgres
-      GITLAB_DB_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
       GITLAB_DB_USER: ${GITLAB_DB_USER}
       GITLAB_DB_PASSWORD: ${GITLAB_DB_PASSWORD}
       GITLAB_DB_NAME: ${GITLAB_DB_NAME}
-    command:
-      - bash
-      - -lc
-      - |
-        set -euo pipefail
-        export PGPASSWORD="$PGSU_PASSWORD"
-        # wait for Postgres to be ready
-        until pg_isready -h "$GITLAB_DB_HOST" -p "$GITLAB_DB_PORT" -U "$PGSU" -t 2; do sleep 2; done
-        # ensure role exists (create or update password)
-        psql -v ON_ERROR_STOP=1 -h "$GITLAB_DB_HOST" -p "$GITLAB_DB_PORT" -U "$PGSU" -d postgres <<SQL
-        DO $$
-        BEGIN
-          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$GITLAB_DB_USER') THEN
-            CREATE ROLE $GITLAB_DB_USER LOGIN PASSWORD '$GITLAB_DB_PASSWORD';
-          ELSE
-            ALTER ROLE $GITLAB_DB_USER LOGIN PASSWORD '$GITLAB_DB_PASSWORD';
-          END IF;
-        END
-        $$;
-        SQL
-        # create DB if missing and set owner
-        psql -v ON_ERROR_STOP=1 -h "$GITLAB_DB_HOST" -p "$GITLAB_DB_PORT" -U "$PGSU" -d postgres \
-          -c "SELECT 'CREATE DATABASE $GITLAB_DB_NAME OWNER $GITLAB_DB_USER' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$GITLAB_DB_NAME')\\gexec"
-        # required extensions
-        psql -v ON_ERROR_STOP=1 -h "$GITLAB_DB_HOST" -p "$GITLAB_DB_PORT" -U "$PGSU" -d "$GITLAB_DB_NAME" \
-          -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" \
-          -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+    networks: [infra]
+    command: -url=jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB} -user=${POSTGRES_USER} -password=${POSTGRES_PASSWORD} -connectRetries=60 -placeholders.gitlabUser=${GITLAB_DB_USER} -placeholders.gitlabPassword=${GITLAB_DB_PASSWORD} -placeholders.gitlabDb=${GITLAB_DB_NAME} migrate
+    volumes:
+      - ./migrations:/flyway/sql
   redis-gitlab:
     pull_policy: always
     command: redis-server --appendonly yes
@@ -74,7 +44,7 @@ services:
     container_name: gitlab
     expose: [80, 22]
     depends_on:
-      bootstrap:
+      gitlab-flyway:
         condition: service_completed_successfully
     healthcheck:
       interval: 30s
