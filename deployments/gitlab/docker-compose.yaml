@@ -5,7 +5,7 @@ networks:
     name: infra
 services:
   gitlab-flyway:
-    image: flyway/flyway:10-alpine
+    image: flyway/flyway:11.11.1-alpine
     container_name: gitlab_flyway
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
