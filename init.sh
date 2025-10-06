@@ -88,11 +88,102 @@ if docker network inspect infra >/dev/null 2>&1; then
   if docker network inspect infra | jq -e '.[0].EnableIPv6' | grep -q true; then
     echo "ℹ️  Сеть 'infra' с IPv6 уже существует"
   else
-    echo "⚠️  Сеть 'infra' существует без IPv6. Удалите и пересоздайте, если это безопасно:"
+    echo "⚠️  Сеть 'infra' существует без IPv6. Удалите и пересоздайте:"
     echo "    docker network rm infra && docker network create --ipv6 --subnet ${V6_DOCKER_SUBNET} infra"
   fi
 else
   docker network create --ipv6 --subnet "${V6_DOCKER_SUBNET}" infra
 fi
+
+echo "🛡 Настройка защиты от UDP-флуда через iptables/ip6tables (c логами)..."
+
+export DEBIAN_FRONTEND=noninteractive
+
+echo "📦 Устанавливаю iptables-persistent (для автосохранения правил)..."
+sudo apt-get update -y
+sudo apt-get install -y iptables-persistent || {
+  echo "⚠️  Не удалось установить iptables-persistent. Правила всё равно применю, но автозагрузка может не сохраниться."
+}
+
+echo "🔩 Проверяю модуль xt_hashlimit..."
+if lsmod | grep -q '^xt_hashlimit'; then
+  echo "✅ xt_hashlimit уже загружен."
+else
+  if sudo modprobe xt_hashlimit 2>/dev/null; then
+    echo "✅ Модуль xt_hashlimit успешно загружен."
+  else
+    echo "⚠️  Модуль xt_hashlimit не загрузился. Попробую всё равно применить правила; если будет ошибка — дам знать."
+  fi
+fi
+
+add_rule() { # add_rule <iptables|ip6tables> <args...>
+  local bin="$1"; shift
+  echo "+ $bin $*"
+  if sudo $bin -C "$@" 2>/dev/null; then
+    echo "  ↳ уже есть (OK)"
+  else
+    if sudo $bin -A "$@" 2>/dev/null; then
+      echo "  ↳ добавлено (OK)"
+    else
+      echo "  ↳ ❌ ошибка при добавлении (проверьте поддержку модуля/синтаксис)" >&2
+      return 1
+    fi
+  fi
+}
+
+echo "🔍 Версия iptables: $(iptables -V || true)"
+echo "🔍 Версия ip6tables: $(ip6tables -V || true)"
+
+echo "🔐 Применяю правила IPv4..."
+
+# Разрешаем ответы
+add_rule iptables OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Системные UDP-службы
+add_rule iptables OUTPUT -p udp --dport 53  -j ACCEPT   # DNS
+add_rule iptables OUTPUT -p udp --dport 123 -j ACCEPT   # NTP
+add_rule iptables OUTPUT -p udp --dport 67:68 -j ACCEPT # DHCP (клиент)
+
+# Лимит исходящего UDP для остального трафика (per dst ip/port)
+add_rule iptables OUTPUT -p udp -m hashlimit \
+  --hashlimit-name udp_out_v4 --hashlimit 50/second --hashlimit-burst 100 \
+  --hashlimit-mode dstip,dstport --hashlimit-htable-expire 60000 -j ACCEPT
+
+# логирование того, что режем (чтобы видеть всплески)
+add_rule iptables OUTPUT -p udp -m limit --limit 5/second -j LOG --log-prefix "[UDP_DROP_v4] "
+
+# Остальной UDP — DROP
+add_rule iptables OUTPUT -p udp -j DROP
+
+echo "🔐 Применяю правила IPv6..."
+
+add_rule ip6tables OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+add_rule ip6tables OUTPUT -p udp --dport 53  -j ACCEPT   # DNS
+add_rule ip6tables OUTPUT -p udp --dport 123 -j ACCEPT   # NTP
+add_rule ip6tables OUTPUT -p udp --dport 67:68 -j ACCEPT # DHCPv6 (если используется)
+
+add_rule ip6tables OUTPUT -p udp -m hashlimit \
+  --hashlimit-name udp_out_v6 --hashlimit 50/second --hashlimit-burst 100 \
+  --hashlimit-mode dstip,dstport --hashlimit-htable-expire 60000 -j ACCEPT
+
+add_rule ip6tables OUTPUT -p udp -m limit --limit 5/second -j LOG --log-prefix "[UDP_DROP_v6] "
+add_rule ip6tables OUTPUT -p udp -j DROP
+
+echo "💾 Сохраняю правила для автозагрузки..."
+if sudo sh -c 'iptables-save  > /etc/iptables/rules.v4' && \
+   sudo sh -c 'ip6tables-save > /etc/iptables/rules.v6'; then
+  echo "✅ Правила сохранены в /etc/iptables/rules.v4 и /etc/iptables/rules.v6"
+else
+  echo "⚠️  Не удалось сохранить правила. Они активны сейчас, но могут не примениться после перезагрузки."
+fi
+
+echo "🧪 Краткая проверка применённых правил (вывод OUTPUT-цепочек):"
+echo "--- IPv4 ---"
+sudo iptables -S OUTPUT || true
+echo "--- IPv6 ---"
+sudo ip6tables -S OUTPUT || true
+
+echo "ℹ️  Логи отбрасываемого UDP смотри в: journalctl -k | grep UDP_DROP"
+echo "✅ Защита от исходящего UDP-флуда активна."
 
 echo "✅ Готово. Если это первый запуск, выйдите из системы и войдите снова, чтобы использовать docker без sudo."

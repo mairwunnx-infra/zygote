@@ -3,3 +3,6 @@
 *.yaml text eol=crlf
 *.yml text eol=crlf
 *.conf text eol=crlf
+Dockerfile linguist-language=Dockerfile
+Dockerfile.* linguist-language=Dockerfile
+**/Dockerfile* linguist-language=Dockerfile
