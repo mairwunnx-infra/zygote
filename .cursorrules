@@ -25,7 +25,7 @@ This repository provides infrastructure automation for server setup and manageme
 ## Structure
 
 ```
-/root/Infra/
+.
 ├── init.sh              # Server initialization script (system setup, Docker installation, 
 │                        # IPv6 configuration, network security rules)
 ├── docker-compose.yaml  # Portainer service configuration with dual-network setup
