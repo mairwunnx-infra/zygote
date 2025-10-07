@@ -123,6 +123,12 @@ JSON
 
 echo "✅ Docker daemon.json настроен."
 
+echo "🔄 Перезапуск systemd-resolved и docker..."
+
+sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+sudo systemctl restart systemd-resolved
 sudo systemctl restart docker
+
+echo "✅ systemd-resolved и docker перезапущены."
 
 echo "✅ Готово. Если это первый запуск, выйдите из системы и войдите снова, чтобы использовать docker без sudo."
