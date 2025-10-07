@@ -95,4 +95,34 @@ else
   docker network create --ipv6 --subnet "${V6_DOCKER_SUBNET}" infra
 fi
 
+echo "🌐 Настройка DNS серверов..."
+
+sudo tee /etc/resolv.conf >/dev/null <<EOF
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+EOF
+
+echo "✅ DNS сервера настроены."
+
+echo "🌐 Настройка Docker daemon.json (DNS сервера)..."
+
+sudo tee /etc/docker/daemon.json >/dev/null <<JSON
+{
+  "max-concurrent-downloads": 8,
+  "registry-mirrors": [
+    "https://mirror.gcr.io"
+  ],
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "ipv6": true,
+  "fixed-cidr-v6": "${V6_DOCKER_SUBNET}",
+  "dns": ["1.1.1.1", "8.8.8.8"],
+  "dns-search": []
+}
+JSON
+
+echo "✅ Docker daemon.json настроен."
+
+sudo systemctl restart docker
+
 echo "✅ Готово. Если это первый запуск, выйдите из системы и войдите снова, чтобы использовать docker без sudo."
