@@ -11,7 +11,7 @@ services:
     pull_policy: always
     command: '-H unix:///var/run/docker.sock'
     container_name: portainer
-    image: portainer/portainer-ce:2.33.2
+    image: portainer/portainer-ce:2.33.3
     logging:
       driver: local
       options:
