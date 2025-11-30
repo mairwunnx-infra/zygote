@@ -10,7 +10,7 @@ echo "🐧 Обновление системы..."
 sudo apt update && sudo apt -y upgrade
 
 echo "🐧 Установка базовых пакетов..."
-sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades
+sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades watchdog
 
 echo "🐧 Установка часового пояса Europe/Moscow..."
 sudo timedatectl set-timezone Europe/Moscow
@@ -66,13 +66,156 @@ EOF
 
 sudo systemctl restart systemd-journald
 
-echo "✅ Лимиты journald настроены (макс. 500M)."
+echo "✅ Лимиты journald настроены (макс. 256M на 1 месяц и 32M на файл)."
+
+# ============================================================
+# BBR: Современный TCP congestion control
+# ============================================================
+
+echo "🚀 Настройка TCP BBR..."
+
+sudo tee /etc/sysctl.d/99-bbr.conf >/dev/null <<EOF
+# TCP BBR congestion control (Google)
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+EOF
+
+sudo sysctl --system >/dev/null
+
+# Проверяем что BBR активен
+if sysctl net.ipv4.tcp_congestion_control | grep -q bbr; then
+  echo "✅ TCP BBR включен."
+else
+  echo "⚠️  BBR не поддерживается ядром (требуется kernel 4.9+)."
+fi
+
+# ============================================================
+# WATCHDOG: Автоперезагрузка при зависании
+# ============================================================
+
+echo "🐕 Настройка watchdog..."
+
+# Загружаем softdog модуль если нет аппаратного watchdog
+if [ ! -e /dev/watchdog ]; then
+  sudo modprobe softdog
+  echo "softdog" | sudo tee /etc/modules-load.d/softdog.conf >/dev/null
+fi
+
+sudo tee /etc/watchdog.conf >/dev/null <<EOF
+# Устройство watchdog
+watchdog-device = /dev/watchdog
+
+# Интервал проверки (сек)
+interval = 10
+
+# Перезагрузка если load average выше этого значения
+max-load-1 = 24
+
+# Перезагрузка если недостаточно памяти (страниц)
+min-memory = 1
+
+# Логировать в syslog
+log-dir = /var/log/watchdog
+
+# Проверять что система отвечает
+realtime = yes
+priority = 1
+EOF
+
+sudo systemctl enable watchdog
+sudo systemctl start watchdog
+
+echo "✅ Watchdog настроен и запущен."
+
+# ============================================================
+# BASH ALIASES: Полезные сокращения
+# ============================================================
+
+echo "⌨️  Настройка bash aliases..."
+
+ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
+if [ -z "${SUDO_USER:-}" ]; then
+  ALIASES_FILE="$HOME/.bash_aliases"
+fi
+
+sudo tee "$ALIASES_FILE" >/dev/null <<'EOF'
+# ============================================================
+# Docker aliases
+# ============================================================
+alias d='docker'
+alias dc='docker compose'
+alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
+alias dpsa='docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
+alias dlogs='docker logs -f --tail 100'
+alias dexec='docker exec -it'
+alias dprune='docker system prune -af --filter "until=168h"'
+alias dstats='docker stats --no-stream'
+alias dimg='docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"'
+
+# Docker compose shortcuts
+alias dcup='docker compose up -d'
+alias dcdown='docker compose down'
+alias dcrestart='docker compose restart'
+alias dclogs='docker compose logs -f --tail 100'
+alias dcpull='docker compose pull'
+
+# ============================================================
+# System aliases
+# ============================================================
+alias ll='ls -alFh'
+alias la='ls -A'
+alias l='ls -CF'
+
+alias df='df -h'
+alias du='du -h'
+alias free='free -h'
+
+alias ports='ss -tulnp'
+alias myip='curl -s ifconfig.me && echo'
+alias myip6='curl -s ifconfig.me/ip6 && echo'
+
+# Быстрый поиск в истории
+alias hg='history | grep'
+
+# Системная информация
+alias meminfo='free -h && echo && cat /proc/meminfo | grep -E "MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree"'
+alias cpuinfo='lscpu | grep -E "Model name|Socket|Core|Thread"'
+
+# Логи
+alias jlog='journalctl -f'
+alias slog='tail -f /var/log/syslog'
+
+# Сеть
+alias pingg='ping -c 3 google.com'
+alias ping6g='ping6 -c 3 google.com'
+EOF
+
+# Устанавливаем владельца
+if [ -n "${SUDO_USER:-}" ]; then
+  sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
+fi
+
+# Подключаем aliases в .bashrc если ещё не подключены
+BASHRC_FILE="/home/$SUDO_USER/.bashrc"
+if [ -z "${SUDO_USER:-}" ]; then
+  BASHRC_FILE="$HOME/.bashrc"
+fi
+
+if ! grep -q 'bash_aliases' "$BASHRC_FILE" 2>/dev/null; then
+  echo '
+# Load bash aliases
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi' | sudo tee -a "$BASHRC_FILE" >/dev/null
+fi
+
+echo "✅ Bash aliases настроены."
 
 # ============================================================
 # SWAP: Файл подкачки
 # ============================================================
 
-echo "🐧 Создание swap-файла (4G)..."
+echo "🐧 Создание swap-файла (4096M, 4G)..."
 
 if swapon --show | grep -q '/swapfile'; then
   echo "ℹ️  Swap-файл уже активен, пропускаем."
