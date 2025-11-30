@@ -10,10 +10,67 @@ echo "🐧 Обновление системы..."
 sudo apt update && sudo apt -y upgrade
 
 echo "🐧 Установка базовых пакетов..."
-sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools
+sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades
 
 echo "🐧 Установка часового пояса Europe/Moscow..."
 sudo timedatectl set-timezone Europe/Moscow
+
+# ============================================================
+# SECURITY: Автоматические обновления безопасности
+# ============================================================
+
+echo "🔒 Настройка автоматических security-обновлений..."
+
+sudo tee /etc/apt/apt.conf.d/50unattended-upgrades >/dev/null <<'EOF'
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+// Автоматически удалять неиспользуемые зависимости
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Автоматически перезагружать если требуется (ночью)
+Unattended-Upgrade::Automatic-Reboot "false";
+
+// Логировать в syslog
+Unattended-Upgrade::SyslogEnable "true";
+EOF
+
+sudo tee /etc/apt/apt.conf.d/20auto-upgrades >/dev/null <<EOF
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+EOF
+
+sudo systemctl enable unattended-upgrades
+sudo systemctl start unattended-upgrades
+
+echo "✅ Автоматические security-обновления настроены."
+
+# ============================================================
+# JOURNALD: Ограничение размера логов
+# ============================================================
+
+echo "📝 Настройка лимитов journald..."
+
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo tee /etc/systemd/journald.conf.d/size.conf >/dev/null <<EOF
+[Journal]
+SystemMaxUse=256M
+SystemMaxFileSize=32M
+MaxRetentionSec=1month
+EOF
+
+sudo systemctl restart systemd-journald
+
+echo "✅ Лимиты journald настроены (макс. 500M)."
+
+# ============================================================
+# SWAP: Файл подкачки
+# ============================================================
 
 echo "🐧 Создание swap-файла (4G)..."
 
@@ -37,6 +94,10 @@ else
   echo "✅ Swap-файл создан."
 fi
 
+# ============================================================
+# ZRAM: Сжатый swap в RAM
+# ============================================================
+
 echo "🐧 Настройка zram..."
 
 sudo tee /etc/default/zramswap >/dev/null <<EOF
@@ -56,6 +117,10 @@ sudo systemctl enable zramswap
 
 echo "✅ zramswap настроен и включен."
 
+# ============================================================
+# SYSCTL: Swappiness
+# ============================================================
+
 echo "🐧 Настройка swappiness..."
 
 # Проверяем, есть ли уже настройка swappiness
@@ -67,6 +132,10 @@ fi
 sudo sysctl -p
 
 echo "✅ Swappiness настроен."
+
+# ============================================================
+# IPv6: Настройка адреса и форвардинга
+# ============================================================
 
 echo "🌐 IPv6: добавление хост-адреса, если отсутствует..."
 if ! ip -6 addr show dev "$IFACE" | grep -q "${V6_HOST%/*}"; then
@@ -86,6 +155,10 @@ net.ipv6.conf.default.accept_ra=2
 EOF
 sudo sysctl --system
 
+# ============================================================
+# DNS: Настройка через systemd-resolved
+# ============================================================
+
 echo "🌐 Настройка DNS серверов через systemd-resolved..."
 
 sudo mkdir -p /etc/systemd/resolved.conf.d
@@ -99,6 +172,10 @@ sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 sudo systemctl restart systemd-resolved
 
 echo "✅ DNS сервера настроены."
+
+# ============================================================
+# DOCKER: Установка
+# ============================================================
 
 echo "🐳 Добавляем репозиторий Docker..."
 
@@ -126,11 +203,16 @@ sudo usermod -aG docker "$USER" || true
 
 echo "✅ Пользователь добавлен в группу Docker."
 
+# ============================================================
+# DOCKER: Конфигурация daemon.json
+# ============================================================
+
 echo "🐳 Настройка Docker daemon.json..."
 sudo mkdir -p /etc/docker
 sudo tee /etc/docker/daemon.json >/dev/null <<JSON
 {
   "max-concurrent-downloads": 8,
+  "live-restore": true,
   "registry-mirrors": [
     "https://mirror.gcr.io"
   ],
@@ -147,6 +229,25 @@ sudo systemctl restart docker
 
 echo "✅ Docker daemon.json настроен."
 
+# ============================================================
+# DOCKER: Автоочистка (cron)
+# ============================================================
+
+echo "🧹 Настройка автоочистки Docker..."
+
+sudo tee /etc/cron.d/docker-prune >/dev/null <<'EOF'
+# Еженедельная очистка Docker (воскресенье, 03:00)
+# Удаляет: остановленные контейнеры, неиспользуемые образы, сети, build cache
+# Только объекты старше 7 дней (168 часов)
+0 3 * * 0 root docker system prune -af --filter "until=168h" >/dev/null 2>&1
+EOF
+
+echo "✅ Автоочистка Docker настроена (каждое воскресенье в 03:00)."
+
+# ============================================================
+# DOCKER: Создание сети infra
+# ============================================================
+
 echo "🐳 Создание внешней сети 'infra' с IPv6 (${V6_DOCKER_SUBNET})..."
 if docker network inspect infra >/dev/null 2>&1; then
   if docker network inspect infra | jq -e '.[0].EnableIPv6' | grep -q true; then
@@ -159,5 +260,12 @@ else
   docker network create --ipv6 --subnet "${V6_DOCKER_SUBNET}" infra
 fi
 
+# ============================================================
+# ГОТОВО
+# ============================================================
+
 echo ""
-echo "✅ Готово! Перезайдите в систему (logout/login), чтобы использовать docker без sudo."
+echo "════════════════════════════════════════════════════════"
+echo "✅ Готово! Перезайдите в систему (logout/login),"
+echo "   чтобы использовать docker без sudo."
+echo "════════════════════════════════════════════════════════"
