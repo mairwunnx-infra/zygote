@@ -10,7 +10,10 @@ echo "🐧 Обновление системы..."
 sudo apt update && sudo apt -y upgrade
 
 echo "🐧 Установка базовых пакетов..."
-sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades watchdog
+sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades watchdog ncdu iotop iftop
+
+echo "🐧 Установка snap пакетов..."
+sudo snap install btop
 
 echo "🐧 Установка часового пояса Europe/Moscow..."
 sudo timedatectl set-timezone Europe/Moscow
