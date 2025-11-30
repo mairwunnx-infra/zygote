@@ -101,6 +101,9 @@ if [ ! -e /dev/watchdog ]; then
   echo "softdog" | sudo tee /etc/modules-load.d/softdog.conf >/dev/null
 fi
 
+# Вычисляем max-load на основе количества ядер (ядра × 3)
+MAX_LOAD=$(( $(nproc) * 3 ))
+
 sudo tee /etc/watchdog.conf >/dev/null <<EOF
 # Устройство watchdog
 watchdog-device = /dev/watchdog
@@ -109,7 +112,8 @@ watchdog-device = /dev/watchdog
 interval = 10
 
 # Перезагрузка если load average выше этого значения
-max-load-1 = 24
+# Формула: количество_ядер × 3 (авто: $(nproc) × 3 = ${MAX_LOAD})
+max-load-1 = ${MAX_LOAD}
 
 # Перезагрузка если недостаточно памяти (страниц)
 min-memory = 1
@@ -125,7 +129,7 @@ EOF
 sudo systemctl enable watchdog
 sudo systemctl start watchdog
 
-echo "✅ Watchdog настроен и запущен."
+echo "✅ Watchdog настроен (max-load-1 = ${MAX_LOAD})."
 
 # ============================================================
 # BASH ALIASES: Полезные сокращения
