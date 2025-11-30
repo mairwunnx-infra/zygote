@@ -10,13 +10,27 @@ echo "🐧 Обновление системы..."
 sudo apt update && sudo apt -y upgrade
 
 echo "🐧 Установка базовых пакетов..."
-sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades watchdog ncdu iotop iftop
+sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades watchdog ncdu iotop iftop duf bat fd-find ripgrep
 
 echo "🐧 Установка snap пакетов..."
 sudo snap install btop
 
 echo "🐧 Установка часового пояса Europe/Moscow..."
 sudo timedatectl set-timezone Europe/Moscow
+
+# ============================================================
+# Настройка SSH
+# ============================================================
+echo "🔒 Настройка SSH..."
+
+# SSH keep-alive (не отключаться)
+echo 'ClientAliveInterval 60' | sudo tee -a /etc/ssh/sshd_config
+echo 'ClientAliveCountMax 10' | sudo tee -a /etc/ssh/sshd_config
+
+# Автологаут через 30 минут бездействия
+echo 'TMOUT=1800' >> ~/.bashrc
+
+echo "✅ SSH настроен."
 
 # ============================================================
 # SECURITY: Автоматические обновления безопасности
