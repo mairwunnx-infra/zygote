@@ -10,22 +10,63 @@ echo "🐧 Обновление системы..."
 sudo apt update && sudo apt -y upgrade
 
 echo "🐧 Установка базовых пакетов..."
-sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony
+sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools
 
 echo "🐧 Установка часового пояса Europe/Moscow..."
 sudo timedatectl set-timezone Europe/Moscow
 
 echo "🐧 Создание swap-файла (4G)..."
-if ! swapon --summary | grep -q '/swapfile'; then
-  sudo fallocate -l 4G /swapfile
+
+if swapon --show | grep -q '/swapfile'; then
+  echo "ℹ️  Swap-файл уже активен, пропускаем."
+else
+  sudo swapoff /swapfile 2>/dev/null || true
+  
+  sudo rm -f /swapfile
+  
+  sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=progress
+  
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile
-  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
-  sudo swapon -a
+  
+  if ! grep -q '/swapfile' /etc/fstab; then
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+  fi
+  
+  sudo swapon /swapfile
   echo "✅ Swap-файл создан."
-else
-  echo "ℹ️  Swap-файл уже существует, пропускаем."
 fi
+
+echo "🐧 Настройка zram..."
+
+sudo tee /etc/default/zramswap >/dev/null <<EOF
+ALGO=zstd
+PERCENT=50
+PRIORITY=100
+EOF
+
+# Сбрасываем zram если уже существует, иначе restart упадёт
+if [ -e /sys/block/zram0 ]; then
+  sudo swapoff /dev/zram0 2>/dev/null || true
+  echo 1 | sudo tee /sys/block/zram0/reset >/dev/null 2>&1 || true
+fi
+
+sudo systemctl restart zramswap
+sudo systemctl enable zramswap
+
+echo "✅ zramswap настроен и включен."
+
+echo "🐧 Настройка swappiness..."
+
+# Проверяем, есть ли уже настройка swappiness
+if ! grep -q '^vm.swappiness' /etc/sysctl.conf; then
+  echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf >/dev/null
+else
+  sudo sed -i 's/^vm.swappiness=.*/vm.swappiness=10/' /etc/sysctl.conf
+fi
+sudo sysctl -p
+
+echo "✅ Swappiness настроен."
 
 echo "🌐 IPv6: добавление хост-адреса, если отсутствует..."
 if ! ip -6 addr show dev "$IFACE" | grep -q "${V6_HOST%/*}"; then
@@ -45,6 +86,20 @@ net.ipv6.conf.default.accept_ra=2
 EOF
 sudo sysctl --system
 
+echo "🌐 Настройка DNS серверов через systemd-resolved..."
+
+sudo mkdir -p /etc/systemd/resolved.conf.d
+sudo tee /etc/systemd/resolved.conf.d/dns.conf >/dev/null <<EOF
+[Resolve]
+DNS=1.1.1.1 8.8.8.8
+FallbackDNS=8.8.4.4 1.0.0.1
+EOF
+
+sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+sudo systemctl restart systemd-resolved
+
+echo "✅ DNS сервера настроены."
+
 echo "🐳 Добавляем репозиторий Docker..."
 
 sudo install -m 0755 -d /etc/apt/keyrings
@@ -60,52 +115,19 @@ sudo apt-get update
 echo "✅ Репозиторий Docker добавлен."
 
 echo "🐳 Установка Docker..."
-sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo apt-get -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 echo "✅ Docker установлен."
 
 echo "👥 Добавляем пользователя в группу Docker..."
-sudo groupadd docker || true
-sudo usermod -aG docker $USER || true
-newgrp docker || true
+sudo groupadd docker 2>/dev/null || true
+sudo usermod -aG docker "$USER" || true
+# НЕ используем newgrp здесь — он открывает новый shell и блокирует скрипт
 
 echo "✅ Пользователь добавлен в группу Docker."
 
-echo "🐳 Настройка Docker daemon.json (логи + IPv6 fixed-cidr-v6=${V6_DOCKER_SUBNET})..."
+echo "🐳 Настройка Docker daemon.json..."
 sudo mkdir -p /etc/docker
-sudo tee /etc/docker/daemon.json >/dev/null <<JSON
-{
-  "log-driver": "json-file",
-  "log-opts": { "max-size": "10m", "max-file": "3" },
-  "ipv6": true,
-  "fixed-cidr-v6": "${V6_DOCKER_SUBNET}"
-}
-JSON
-sudo systemctl restart docker
-
-echo "🐳 Создание внешней сети 'infra' с IPv6 (${V6_DOCKER_SUBNET})..."
-if docker network inspect infra >/dev/null 2>&1; then
-  if docker network inspect infra | jq -e '.[0].EnableIPv6' | grep -q true; then
-    echo "ℹ️  Сеть 'infra' с IPv6 уже существует"
-  else
-    echo "⚠️  Сеть 'infra' существует без IPv6. Удалите и пересоздайте:"
-    echo "    docker network rm infra && docker network create --ipv6 --subnet ${V6_DOCKER_SUBNET} infra"
-  fi
-else
-  docker network create --ipv6 --subnet "${V6_DOCKER_SUBNET}" infra
-fi
-
-echo "🌐 Настройка DNS серверов..."
-
-sudo tee /etc/resolv.conf >/dev/null <<EOF
-nameserver 8.8.8.8
-nameserver 8.8.4.4
-EOF
-
-echo "✅ DNS сервера настроены."
-
-echo "🌐 Настройка Docker daemon.json (DNS сервера)..."
-
 sudo tee /etc/docker/daemon.json >/dev/null <<JSON
 {
   "max-concurrent-downloads": 8,
@@ -121,14 +143,21 @@ sudo tee /etc/docker/daemon.json >/dev/null <<JSON
 }
 JSON
 
-echo "✅ Docker daemon.json настроен."
-
-echo "🔄 Перезапуск systemd-resolved и docker..."
-
-sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
-sudo systemctl restart systemd-resolved
 sudo systemctl restart docker
 
-echo "✅ systemd-resolved и docker перезапущены."
+echo "✅ Docker daemon.json настроен."
 
-echo "✅ Готово. Если это первый запуск, выйдите из системы и войдите снова, чтобы использовать docker без sudo."
+echo "🐳 Создание внешней сети 'infra' с IPv6 (${V6_DOCKER_SUBNET})..."
+if docker network inspect infra >/dev/null 2>&1; then
+  if docker network inspect infra | jq -e '.[0].EnableIPv6' | grep -q true; then
+    echo "ℹ️  Сеть 'infra' с IPv6 уже существует"
+  else
+    echo "⚠️  Сеть 'infra' существует без IPv6. Удалите и пересоздайте:"
+    echo "    docker network rm infra && docker network create --ipv6 --subnet ${V6_DOCKER_SUBNET} infra"
+  fi
+else
+  docker network create --ipv6 --subnet "${V6_DOCKER_SUBNET}" infra
+fi
+
+echo ""
+echo "✅ Готово! Перезайдите в систему (logout/login), чтобы использовать docker без sudo."
