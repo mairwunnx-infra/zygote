@@ -5,12 +5,34 @@ IFACE=${IFACE:-ens3}
 V6_PREFIX=${V6_PREFIX:-"2a09:7c47:0:2e::/64"}
 V6_HOST=${V6_HOST:-"2a09:7c47:0:2e::1/64"}
 V6_DOCKER_SUBNET=${V6_DOCKER_SUBNET:-"2a09:7c47:0:2e:1000::/80"}
+TARGET_USER=${SUDO_USER:-$USER}
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6 2>/dev/null || true)"
+if [ -z "$TARGET_HOME" ]; then
+  TARGET_HOME="$HOME"
+fi
+
+ensure_line_in_file() {
+  local line="$1"
+  local file="$2"
+  sudo touch "$file"
+  if ! sudo grep -Fxq "$line" "$file"; then
+    echo "$line" | sudo tee -a "$file" >/dev/null
+  fi
+}
+
+set_sshd_option() {
+  local key="$1"
+  local value="$2"
+  local file="/etc/ssh/sshd_config"
+  sudo sed -i -E "/^[#[:space:]]*${key}[[:space:]]+/d" "$file"
+  echo "${key} ${value}" | sudo tee -a "$file" >/dev/null
+}
 
 echo "🐧 Обновление системы..."
 sudo apt update && sudo apt -y upgrade
 
 echo "🐧 Установка базовых пакетов..."
-sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades watchdog ncdu iotop iftop duf bat fd-find ripgrep
+sudo apt -y install curl ca-certificates gnupg lsb-release git jq unzip htop chrony zram-tools unattended-upgrades watchdog ncdu iotop iftop duf bat fd-find ripgrep ufw
 
 echo "🐧 Установка snap пакетов..."
 sudo snap install btop
@@ -24,11 +46,13 @@ sudo timedatectl set-timezone Europe/Moscow
 echo "🔒 Настройка SSH..."
 
 # SSH keep-alive (не отключаться)
-echo 'ClientAliveInterval 60' | sudo tee -a /etc/ssh/sshd_config
-echo 'ClientAliveCountMax 10' | sudo tee -a /etc/ssh/sshd_config
+set_sshd_option "ClientAliveInterval" "60"
+set_sshd_option "ClientAliveCountMax" "10"
 
 # Автологаут через 30 минут бездействия
-echo 'TMOUT=1800' >> ~/.bashrc
+ensure_line_in_file 'TMOUT=1800' "${TARGET_HOME}/.bashrc"
+
+sudo systemctl reload ssh || sudo systemctl reload sshd || true
 
 echo "✅ SSH настроен."
 
@@ -154,10 +178,7 @@ echo "✅ Watchdog настроен (max-load-1 = ${MAX_LOAD})."
 
 echo "⌨️  Настройка bash aliases..."
 
-ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
-if [ -z "${SUDO_USER:-}" ]; then
-  ALIASES_FILE="$HOME/.bash_aliases"
-fi
+ALIASES_FILE="${TARGET_HOME}/.bash_aliases"
 
 sudo tee "$ALIASES_FILE" >/dev/null <<'EOF'
 # ============================================================
@@ -213,14 +234,11 @@ EOF
 
 # Устанавливаем владельца
 if [ -n "${SUDO_USER:-}" ]; then
-  sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
+  sudo chown "$TARGET_USER:$TARGET_USER" "$ALIASES_FILE"
 fi
 
 # Подключаем aliases в .bashrc если ещё не подключены
-BASHRC_FILE="/home/$SUDO_USER/.bashrc"
-if [ -z "${SUDO_USER:-}" ]; then
-  BASHRC_FILE="$HOME/.bashrc"
-fi
+BASHRC_FILE="${TARGET_HOME}/.bashrc"
 
 if ! grep -q 'bash_aliases' "$BASHRC_FILE" 2>/dev/null; then
   echo '
@@ -362,7 +380,7 @@ echo "✅ Docker установлен."
 
 echo "👥 Добавляем пользователя в группу Docker..."
 sudo groupadd docker 2>/dev/null || true
-sudo usermod -aG docker "$USER" || true
+sudo usermod -aG docker "$TARGET_USER" || true
 # НЕ используем newgrp здесь — он открывает новый shell и блокирует скрипт
 
 echo "✅ Пользователь добавлен в группу Docker."
@@ -409,19 +427,78 @@ EOF
 echo "✅ Автоочистка Docker настроена (каждое воскресенье в 03:00)."
 
 # ============================================================
+# TTYD: Установка web-терминала и systemd-сервиса
+# ============================================================
+
+echo "🖥️  Установка ttyd..."
+
+TTYD_ARCH="$(uname -m)"
+case "$TTYD_ARCH" in
+  x86_64)
+    TTYD_BIN_URL="https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64"
+    ;;
+  aarch64|arm64)
+    TTYD_BIN_URL="https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.aarch64"
+    ;;
+  *)
+    echo "❌ Неподдерживаемая архитектура для ttyd: ${TTYD_ARCH}"
+    exit 1
+    ;;
+esac
+
+sudo curl -fsSL "$TTYD_BIN_URL" -o /usr/local/bin/ttyd
+sudo chmod +x /usr/local/bin/ttyd
+
+TTYD_USER="${TARGET_USER}"
+if ! id "$TTYD_USER" >/dev/null 2>&1; then
+  echo "❌ Пользователь ${TTYD_USER} не найден для запуска ttyd."
+  exit 1
+fi
+
+echo "🖥️  Создание systemd-сервиса ttyd..."
+sudo tee /etc/systemd/system/ttyd.service >/dev/null <<EOF
+[Unit]
+Description=ttyd web terminal
+After=network.target
+
+[Service]
+User=${TTYD_USER}
+ExecStart=/usr/local/bin/ttyd --interface 127.0.0.1 --port 7681 --max-clients 3 --timeout 300 bash
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable ttyd
+sudo systemctl restart ttyd
+
+echo "🔥 Закрытие внешнего доступа к порту 7681 через UFW..."
+if command -v ufw >/dev/null 2>&1; then
+  if ! sudo ufw status 2>/dev/null | grep -q '7681/tcp'; then
+    sudo ufw deny 7681/tcp || true
+  fi
+else
+  echo "ℹ️  UFW не найден, пропускаем правило deny для 7681/tcp."
+fi
+
+echo "✅ ttyd установлен (слушает только 127.0.0.1), UFW-правило для 7681 применено/проверено."
+
+# ============================================================
 # DOCKER: Создание сети infra
 # ============================================================
 
 echo "🐳 Создание внешней сети 'infra' с IPv6 (${V6_DOCKER_SUBNET})..."
-if docker network inspect infra >/dev/null 2>&1; then
-  if docker network inspect infra | jq -e '.[0].EnableIPv6' | grep -q true; then
+if sudo docker network inspect infra >/dev/null 2>&1; then
+  if sudo docker network inspect infra | jq -e '.[0].EnableIPv6' | grep -q true; then
     echo "ℹ️  Сеть 'infra' с IPv6 уже существует"
   else
     echo "⚠️  Сеть 'infra' существует без IPv6. Удалите и пересоздайте:"
     echo "    docker network rm infra && docker network create --ipv6 --subnet ${V6_DOCKER_SUBNET} infra"
   fi
 else
-  docker network create --ipv6 --subnet "${V6_DOCKER_SUBNET}" infra
+  sudo docker network create --ipv6 --subnet "${V6_DOCKER_SUBNET}" infra
 fi
 
 # ============================================================
